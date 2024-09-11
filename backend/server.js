@@ -12,33 +12,37 @@ const io = socketIO(server, {
   cors: {
     origin: 'http://localhost:3000',
     methods: ['GET', 'POST'],
-    credentials: true
-  }
+    credentials: true,
+  },
 });
 
 app.use(express.json());
 
 // Middleware: Express session
-app.use(session({
-  secret: 'daffa123',
-  resave: false,
-  saveUninitialized: true,
-  cookie: { secure: false }
-}));
+app.use(
+  session({
+    secret: 'daffa123',
+    resave: false,
+    saveUninitialized: true,
+    cookie: { secure: false },
+  })
+);
 
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100
+  max: 100,
 });
 app.use(limiter);
 
 // CORS configuration
-app.use(cors({
-  origin: 'http://localhost:3000',
-  methods: ['GET', 'POST'],
-  credentials: true
-}));
+app.use(
+  cors({
+    origin: 'http://localhost:3000',
+    methods: ['GET', 'POST'],
+    credentials: true,
+  })
+);
 
 // Store rooms and participants
 let rooms = {};
@@ -76,13 +80,17 @@ app.post('/join-room', (req, res) => {
 
 // Socket.IO connection
 io.on('connection', (socket) => {
-  let roomCode = socket.handshake.query.roomCode;
-  let username = socket.handshake.query.username;
+  const roomCode = socket.handshake.query.roomCode;
+  const username = socket.handshake.query.username;
+
+  if (!rooms[roomCode]) {
+    return;
+  }
 
   socket.join(roomCode);
 
   // Update participant count
-  io.to(roomCode).emit('update-participants', rooms[roomCode]?.participants.length || 0);
+  io.to(roomCode).emit('update-participants', rooms[roomCode].participants.length || 0);
 
   // Broadcast to room that a new user has joined
   io.to(roomCode).emit('message', `${username} has joined the room`);
@@ -92,24 +100,26 @@ io.on('connection', (socket) => {
     io.to(roomCode).emit('chat', { username, msg });
   });
 
-  // Handle screen sharing events from the master
-  socket.on('share-screen', (stream) => {
-    socket.to(roomCode).emit('screen-shared', stream);
+  // Handle screen sharing events from the master (just signaling, not stream)
+  socket.on('share-screen', () => {
+    io.to(roomCode).emit('screen-shared');
   });
 
   // Handle stop screen sharing
   socket.on('stop-screen-share', () => {
-    socket.to(roomCode).emit('screen-share-stopped');
+    io.to(roomCode).emit('screen-share-stopped');
   });
 
   // Handle disconnects
   socket.on('disconnect', () => {
     if (rooms[roomCode]) {
-      rooms[roomCode].participants = rooms[roomCode].participants.filter(p => p.id !== socket.id);
+      rooms[roomCode].participants = rooms[roomCode].participants.filter(
+        (p) => p.id !== socket.id
+      );
       io.to(roomCode).emit('update-participants', rooms[roomCode].participants.length);
       io.to(roomCode).emit('message', `${username} has left the room`);
 
-      // Clean up empty rooms
+      // Clean up empty rooms if master disconnects
       if (rooms[roomCode].participants.length === 0 && rooms[roomCode].master === socket.id) {
         delete rooms[roomCode];
       }

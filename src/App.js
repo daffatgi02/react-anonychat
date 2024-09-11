@@ -20,7 +20,7 @@ const App = () => {
     if (roomCode && username) {
       const newSocket = io(BACKEND_URL, {
         query: { roomCode, username },
-        withCredentials: true
+        withCredentials: true,
       });
       setSocket(newSocket);
 
@@ -29,13 +29,15 @@ const App = () => {
       });
 
       newSocket.on('chat', (data) => {
-        setMessages((prevMessages) => [...prevMessages, `${data.username}: ${data.msg}`]);
+        setMessages((prevMessages) => [
+          ...prevMessages,
+          `${data.username}: ${data.msg}`,
+        ]);
       });
 
-      newSocket.on('screen-shared', (stream) => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
+      // Receiving signals about screen sharing (this should trigger signaling in WebRTC, not stream)
+      newSocket.on('screen-shared', () => {
+        console.log('Screen sharing started');
       });
 
       newSocket.on('screen-share-stopped', () => {
@@ -49,12 +51,15 @@ const App = () => {
         setParticipantCount(count);
       });
 
-      return () => newSocket.disconnect();
+      return () => {
+        newSocket.off(); // Clean up event listeners
+        newSocket.disconnect();
+      };
     }
   }, [roomCode, username]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   const createRoom = async () => {
@@ -65,14 +70,14 @@ const App = () => {
     try {
       const response = await fetch(`${BACKEND_URL}/create-room`, {
         method: 'POST',
-        credentials: 'include'
+        credentials: 'include',
       });
       const data = await response.json();
       setRoomCode(data.roomCode);
       setIsMaster(data.isMaster);
       setError('');
     } catch (err) {
-      setError('Failed to create room');
+      setError(err.message || 'Failed to create room');
     }
   };
 
@@ -86,7 +91,7 @@ const App = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ roomCode, username }),
-        credentials: 'include'
+        credentials: 'include',
       });
       const data = await response.json();
       if (data.success) {
@@ -96,33 +101,41 @@ const App = () => {
         setError(data.message || 'Failed to join room');
       }
     } catch (err) {
-      setError('Failed to join room');
+      setError(err.message || 'Failed to join room');
     }
   };
 
   const shareScreen = () => {
     if (!isMaster) return;
-    navigator.mediaDevices.getDisplayMedia({ video: true }).then((stream) => {
-      setScreenSharing(true);
-      socket.emit('share-screen', stream);
-      videoRef.current.srcObject = stream;
-      
-      stream.getVideoTracks()[0].onended = () => {
-        stopScreenShare();
-      };
-    }).catch((err) => {
-      console.error("Error sharing screen:", err);
-      setError('Failed to share screen');
-    });
+    navigator.mediaDevices
+      .getDisplayMedia({ video: true })
+      .then((stream) => {
+        setScreenSharing(true);
+        if (socket) {
+          // This should send signaling instead of the stream itself.
+          socket.emit('share-screen');
+        }
+        videoRef.current.srcObject = stream;
+
+        stream.getVideoTracks()[0].onended = () => {
+          stopScreenShare();
+        };
+      })
+      .catch((err) => {
+        console.error('Error sharing screen:', err);
+        setError('Failed to share screen');
+      });
   };
 
   const stopScreenShare = () => {
     if (videoRef.current && videoRef.current.srcObject) {
-      videoRef.current.srcObject.getTracks().forEach(track => track.stop());
+      videoRef.current.srcObject.getTracks().forEach((track) => track.stop());
       videoRef.current.srcObject = null;
     }
     setScreenSharing(false);
-    socket.emit('stop-screen-share');
+    if (socket) {
+      socket.emit('stop-screen-share');
+    }
   };
 
   const sendMessage = () => {
@@ -156,24 +169,46 @@ const App = () => {
             onChange={(e) => setRoomCode(e.target.value)}
             style={{ margin: '5px', padding: '5px' }}
           />
-          <button onClick={joinRoom} style={{ margin: '5px', padding: '5px' }}>Join</button>
-          <button onClick={createRoom} style={{ margin: '5px', padding: '5px' }}>Create Room</button>
+          <button onClick={joinRoom} style={{ margin: '5px', padding: '5px' }}>
+            Join
+          </button>
+          <button onClick={createRoom} style={{ margin: '5px', padding: '5px' }}>
+            Create Room
+          </button>
           {error && <p style={{ color: 'red' }}>{error}</p>}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: screenSharing ? 'row' : 'column' }}>
           <div style={{ flex: screenSharing ? '3' : '1', marginRight: screenSharing ? '20px' : '0' }}>
-            <h2>Room: {roomCode} {isMaster && <button onClick={copyRoomCode}>Copy Code</button>}</h2>
+            <h2>
+              Room: {roomCode}{' '}
+              {isMaster && <button onClick={copyRoomCode}>Copy Code</button>}
+            </h2>
             <p>Participants: {participantCount}/10</p>
             {isMaster && (
-              <button onClick={screenSharing ? stopScreenShare : shareScreen} style={{ padding: '5px', marginBottom: '10px' }}>
+              <button
+                onClick={screenSharing ? stopScreenShare : shareScreen}
+                style={{ padding: '5px', marginBottom: '10px' }}
+              >
                 {screenSharing ? 'Stop Screen Share' : 'Share Screen'}
               </button>
             )}
-            <video ref={videoRef} autoPlay style={{ width: '100%', display: screenSharing ? 'block' : 'none' }} />
+            <video
+              ref={videoRef}
+              autoPlay
+              style={{ width: '100%', display: screenSharing ? 'block' : 'none' }}
+            />
           </div>
           <div style={{ flex: '1' }}>
-            <div style={{ height: '300px', overflowY: 'scroll', border: '1px solid #ccc', padding: '10px', marginBottom: '10px' }}>
+            <div
+              style={{
+                height: '300px',
+                overflowY: 'scroll',
+                border: '1px solid #ccc',
+                padding: '10px',
+                marginBottom: '10px',
+              }}
+            >
               {messages.map((msg, index) => (
                 <div key={index}>{msg}</div>
               ))}
@@ -186,7 +221,9 @@ const App = () => {
               onChange={(e) => setMessage(e.target.value)}
               style={{ width: '70%', marginRight: '5px', padding: '5px' }}
             />
-            <button onClick={sendMessage} style={{ width: '25%', padding: '5px' }}>Send</button>
+            <button onClick={sendMessage} style={{ width: '25%', padding: '5px' }}>
+              Send
+            </button>
           </div>
         </div>
       )}
