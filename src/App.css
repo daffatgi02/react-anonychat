@@ -1,0 +1,24 @@
+.App {
+    text-align: center;
+}
+
+button {
+    margin: 5px;
+    padding: 10px 20px;
+    font-size: 16px;
+}
+
+input {
+    margin: 5px;
+    padding: 10px;
+    font-size: 16px;
+}
+
+p {
+    font-size: 18px;
+}
+
+video {
+    border: 1px solid #ccc;
+    margin: 10px;
+}
